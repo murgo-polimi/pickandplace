@@ -6,7 +6,8 @@ const TARGETS = [
   { source: "../Grid_Hole.glb", output: "../Grid_Hole_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_second.glb", output: "../Grid_second_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Pick_and_Place_Robot.glb", output: "../Pick_and_Place_Robot_baked.glb", selection: "white", material: "brushedAluminum" },
-  { source: "../CommandBox.glb", output: "../CommandBox_baked.glb", selection: "commandBoxBody", material: "brushedAluminum" }
+  { source: "../CommandBox.glb", output: "../CommandBox_baked.glb", selection: "commandBoxBody", material: "brushedAluminum" },
+  { source: "../SignalPole.glb", output: "../SignalPole_baked.glb", selection: "signalPoleMetal", material: "signalPoleBrushedAluminum" }
 ];
 
 const COMPONENT_SIZE = {
@@ -40,6 +41,10 @@ function bakeSatinAluminumMaterial(target) {
   if (context.gltf.extras?.materialBake) {
     if (target.selection === "commandBoxBody") {
       augmentBakedCommandBox(context, outputPath, glb.length);
+      return;
+    }
+    if (target.selection === "signalPoleMetal") {
+      augmentBakedSignalPole(context, outputPath, glb.length, target.material);
       return;
     }
     console.log(`Skipping ${sourceName}; it is already a baked material asset.`);
@@ -128,6 +133,49 @@ function augmentBakedCommandBox(context, outputPath, inputByteLength) {
   console.log(`Input ${inputByteLength.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
 }
 
+function augmentBakedSignalPole(context, outputPath, inputByteLength, material) {
+  const materialIndex = findMaterialIndex(context.gltf, "Baked Brushed Aluminum");
+  if (materialIndex < 0) {
+    throw new Error("SignalPole.glb is baked, but has no Baked Brushed Aluminum material.");
+  }
+
+  applyBakedMaterialToIndex(context, materialIndex, material);
+
+  let primitiveCount = 0;
+  for (const mesh of context.gltf.meshes || []) {
+    for (let primitiveIndex = 0; primitiveIndex < (mesh.primitives || []).length; primitiveIndex += 1) {
+      const primitive = mesh.primitives[primitiveIndex];
+      if (primitive.attributes?.POSITION === undefined) continue;
+      if (!shouldBakePrimitive(context.gltf, mesh, primitive, primitiveIndex, "signalPoleMetal")) continue;
+      if (primitive.attributes.TEXCOORD_0 === undefined) {
+        bakePlanarUvs(context, primitive);
+      }
+      primitive.material = materialIndex;
+      primitiveCount += 1;
+    }
+  }
+
+  context.gltf.extras = {
+    ...(context.gltf.extras || {}),
+    materialBake: {
+      ...(context.gltf.extras?.materialBake || {}),
+      source: "SignalPole.glb",
+      geometryPositionsModified: false,
+      bakedTextures: ["randomized brushed aluminum"],
+      selection: "signalPoleMetal",
+      primitiveCount,
+      textureVariant: "randomizedBrushedAluminum",
+      note: "Only material assignment, texture coordinates, and embedded texture data were changed."
+    }
+  };
+
+  context.gltf.buffers[0].byteLength = context.binary.length;
+  const output = writeGlb(context.gltf, context.binary);
+  fs.writeFileSync(outputPath, output);
+  console.log(`Updated ${outputPath.pathname}`);
+  console.log(`Input ${inputByteLength.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
+}
+
 function findMaterialIndex(gltf, name) {
   return (gltf.materials || []).findIndex(material => material.name === name);
 }
@@ -149,20 +197,11 @@ function setNamedMaterialColor(gltf, name, baseColorFactor, roughnessFactor) {
 }
 
 function createBakedMaterial(context, material) {
-  if (material === "brushedAluminum") {
-    const textures = createBrushedAluminumTextures(512);
-    const textureIndices = addTexturePair(context, "Baked brushed aluminum", textures);
+  if (material === "brushedAluminum" || material === "signalPoleBrushedAluminum") {
+    const options = bakedBrushedAluminumOptions(context, material);
     return {
-      index: addMaterial(context, {
-        name: "Baked Brushed Aluminum",
-        baseColorFactor: [0.72, 0.73, 0.7, 1],
-        baseColorTexture: textureIndices.albedo,
-        normalTexture: textureIndices.normal,
-        normalScale: 0.075,
-        metallicFactor: 0.95,
-        roughnessFactor: 0.57
-      }),
-      label: "brushed aluminum"
+      index: addMaterial(context, options),
+      label: options.label
     };
   }
 
@@ -182,6 +221,30 @@ function createBakedMaterial(context, material) {
   };
 }
 
+function applyBakedMaterialToIndex(context, materialIndex, material) {
+  const options = bakedBrushedAluminumOptions(context, material);
+  setMaterial(context.gltf.materials[materialIndex], options);
+}
+
+function bakedBrushedAluminumOptions(context, material) {
+  const isSignalPole = material === "signalPoleBrushedAluminum";
+  const textures = isSignalPole
+    ? createRandomizedBrushedAluminumTextures(512)
+    : createBrushedAluminumTextures(512);
+  const textureName = isSignalPole ? "Baked randomized brushed aluminum" : "Baked brushed aluminum";
+  const textureIndices = addTexturePair(context, textureName, textures);
+  return {
+    name: "Baked Brushed Aluminum",
+    label: isSignalPole ? "randomized brushed aluminum" : "brushed aluminum",
+    baseColorFactor: isSignalPole ? [0.74, 0.745, 0.715, 1] : [0.72, 0.73, 0.7, 1],
+    baseColorTexture: textureIndices.albedo,
+    normalTexture: textureIndices.normal,
+    normalScale: isSignalPole ? 0.052 : 0.075,
+    metallicFactor: 0.95,
+    roughnessFactor: isSignalPole ? 0.62 : 0.57
+  };
+}
+
 function shouldBakePrimitive(gltf, mesh, primitive, primitiveIndex, selection) {
   if (selection === "all") return true;
   if (selection === "white") {
@@ -196,6 +259,9 @@ function shouldBakePrimitive(gltf, mesh, primitive, primitiveIndex, selection) {
   if (selection === "commandBoxBody") {
     const name = gltf.materials?.[primitive.material]?.name || "";
     return /ABS\s*\(White\)|Aluminum\s*-\s*Brushed\s*Linear/i.test(name) || isCommandBoxTopPlate(mesh, primitiveIndex);
+  }
+  if (selection === "signalPoleMetal") {
+    return /MetalBody|MetalPlatform/i.test(mesh.name || "");
   }
   return false;
 }
@@ -486,6 +552,61 @@ function createBrushedAluminumTextures(size) {
   }
 
   fillNormalTexture(normal, heights, size, 0.5, 1.7);
+  return { albedo, normal };
+}
+
+function createRandomizedBrushedAluminumTextures(size) {
+  const albedo = rgbaImage(size, size);
+  const normal = rgbaImage(size, size);
+  const heights = new Float32Array(size * size);
+  const scuffs = createRandomMetalScuffs(size, 10, 20260708);
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const warpX = (fbmNoise(x * 0.006, y * 0.008, 601, 5) - 0.5) * 82;
+      const warpY = (fbmNoise(x * 0.008, y * 0.006, 607, 5) - 0.5) * 74;
+      const localAngle = (fbmNoise(x * 0.0045, y * 0.0045, 613, 4) - 0.5) * 1.15;
+      const ca = Math.cos(localAngle);
+      const sa = Math.sin(localAngle);
+      const wx = x + warpX;
+      const wy = y + warpY;
+      const u = wx * ca + wy * sa;
+      const v = -wx * sa + wy * ca;
+
+      const broadTone = fbmNoise(wx * 0.0038, wy * 0.0038, 619, 5) - 0.5;
+      const cloudyWear = fbmNoise(wx * 0.014, wy * 0.011, 631, 4) - 0.5;
+      const brokenMask = 0.36 + smoothStep(0.18, 0.86, fbmNoise(wx * 0.018, wy * 0.017, 641, 4)) * 0.64;
+      const directionalGrain = fbmNoise(u * 0.13, v * 0.72, 653, 4) - 0.5;
+      const fineGrain = fbmNoise(u * 0.31, v * 1.18, 659, 3) - 0.5;
+      const crossGrain = fbmNoise((u + v * 0.35) * 0.048, (v - u * 0.22) * 0.21, 661, 3) - 0.5;
+      const micro = hashNoise(x, y, 673) - 0.5;
+      const scuff = metalScuffAt(x, y, scuffs);
+      const grain = (directionalGrain * 0.028 + fineGrain * 0.011) * brokenMask + crossGrain * 0.014;
+      const height = 0.5 + broadTone * 0.013 + cloudyWear * 0.012 + grain + micro * 0.0035 + scuff.height * 0.014;
+      const i = y * size + x;
+      heights[i] = height;
+
+      const shade = clamp(
+        185 +
+        broadTone * 18 +
+        cloudyWear * 13 +
+        directionalGrain * brokenMask * 12 +
+        fineGrain * 5 +
+        crossGrain * 8 +
+        micro * 3 +
+        scuff.albedo * 8,
+        152,
+        224
+      );
+      const p = i * 4;
+      albedo.data[p] = clamp(shade * 1.012, 0, 255);
+      albedo.data[p + 1] = clamp(shade * 1.002, 0, 255);
+      albedo.data[p + 2] = clamp(shade * 0.957, 0, 255);
+      albedo.data[p + 3] = 255;
+    }
+  }
+
+  fillNormalTexture(normal, heights, size, 0.72, 0.92);
   return { albedo, normal };
 }
 
