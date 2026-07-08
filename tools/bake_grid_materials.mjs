@@ -5,7 +5,8 @@ const TARGETS = [
   { source: "../Grid.glb", output: "../Grid_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_Hole.glb", output: "../Grid_Hole_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_second.glb", output: "../Grid_second_baked.glb", selection: "all", material: "satinAluminum" },
-  { source: "../Pick_and_Place_Robot.glb", output: "../Pick_and_Place_Robot_baked.glb", selection: "white", material: "brushedAluminum" }
+  { source: "../Pick_and_Place_Robot.glb", output: "../Pick_and_Place_Robot_baked.glb", selection: "white", material: "brushedAluminum" },
+  { source: "../CommandBox.glb", output: "../CommandBox_baked.glb", selection: "commandBoxBody", material: "brushedAluminum" }
 ];
 
 const COMPONENT_SIZE = {
@@ -37,6 +38,10 @@ function bakeSatinAluminumMaterial(target) {
   const context = readGlb(glb);
   const sourceName = inputPath.pathname.split("/").pop();
   if (context.gltf.extras?.materialBake) {
+    if (target.selection === "commandBoxBody") {
+      augmentBakedCommandBox(context, outputPath, glb.length);
+      return;
+    }
     console.log(`Skipping ${sourceName}; it is already a baked material asset.`);
     return;
   }
@@ -45,13 +50,18 @@ function bakeSatinAluminumMaterial(target) {
 
   let primitiveCount = 0;
   for (const mesh of context.gltf.meshes || []) {
-    for (const primitive of mesh.primitives || []) {
+    for (let primitiveIndex = 0; primitiveIndex < (mesh.primitives || []).length; primitiveIndex += 1) {
+      const primitive = mesh.primitives[primitiveIndex];
       if (primitive.attributes?.POSITION === undefined) continue;
-      if (!shouldBakePrimitive(context.gltf, primitive, target.selection)) continue;
+      if (!shouldBakePrimitive(context.gltf, mesh, primitive, primitiveIndex, target.selection)) continue;
       bakePlanarUvs(context, primitive);
       primitive.material = bakedMaterial.index;
       primitiveCount += 1;
     }
+  }
+
+  if (target.selection === "commandBoxBody") {
+    darkenCommandBoxControlMaterials(context.gltf);
   }
 
   context.gltf.asset = context.gltf.asset || { version: "2.0" };
@@ -73,6 +83,69 @@ function bakeSatinAluminumMaterial(target) {
   fs.writeFileSync(outputPath, output);
   console.log(`Wrote ${outputPath.pathname}`);
   console.log(`Input ${glb.length.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
+}
+
+function augmentBakedCommandBox(context, outputPath, inputByteLength) {
+  const materialIndex = findMaterialIndex(context.gltf, "Baked Brushed Aluminum");
+  if (materialIndex < 0) {
+    throw new Error("CommandBox.glb is baked, but has no Baked Brushed Aluminum material.");
+  }
+
+  darkenCommandBoxControlMaterials(context.gltf);
+
+  let primitiveCount = 0;
+  for (const mesh of context.gltf.meshes || []) {
+    for (let primitiveIndex = 0; primitiveIndex < (mesh.primitives || []).length; primitiveIndex += 1) {
+      const primitive = mesh.primitives[primitiveIndex];
+      if (primitive.attributes?.POSITION === undefined) continue;
+      if (!isCommandBoxTopPlate(mesh, primitiveIndex)) continue;
+      if (primitive.material !== materialIndex) {
+        bakePlanarUvs(context, primitive);
+        primitive.material = materialIndex;
+        primitiveCount += 1;
+      }
+    }
+  }
+
+  context.gltf.extras = {
+    ...(context.gltf.extras || {}),
+    materialBake: {
+      ...(context.gltf.extras?.materialBake || {}),
+      source: "CommandBox.glb",
+      geometryPositionsModified: false,
+      bakedTextures: ["brushed aluminum"],
+      selection: "commandBoxBodyAndTopPlate",
+      primitiveCount: (context.gltf.extras?.materialBake?.primitiveCount || 0) + primitiveCount,
+      darkenedCommandControls: true,
+      note: "Only material assignment, texture coordinates, and embedded texture data were changed."
+    }
+  };
+
+  context.gltf.buffers[0].byteLength = context.binary.length;
+  const output = writeGlb(context.gltf, context.binary);
+  fs.writeFileSync(outputPath, output);
+  console.log(`Updated ${outputPath.pathname}`);
+  console.log(`Input ${inputByteLength.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
+}
+
+function findMaterialIndex(gltf, name) {
+  return (gltf.materials || []).findIndex(material => material.name === name);
+}
+
+function darkenCommandBoxControlMaterials(gltf) {
+  setNamedMaterialColor(gltf, "StateSelector_material3", [0.24, 0.245, 0.235, 1], 0.68);
+  setNamedMaterialColor(gltf, "Potentiometer_material3", [0.24, 0.245, 0.235, 1], 0.68);
+  setNamedMaterialColor(gltf, "StateSelector_material2", [0.105, 0.11, 0.105, 1], 0.72);
+  setNamedMaterialColor(gltf, "Potentiometer_material2", [0.105, 0.11, 0.105, 1], 0.72);
+}
+
+function setNamedMaterialColor(gltf, name, baseColorFactor, roughnessFactor) {
+  const material = (gltf.materials || []).find(candidate => candidate.name === name);
+  if (!material) return;
+  material.pbrMetallicRoughness = material.pbrMetallicRoughness || {};
+  material.pbrMetallicRoughness.baseColorFactor = baseColorFactor;
+  material.pbrMetallicRoughness.metallicFactor = 0;
+  material.pbrMetallicRoughness.roughnessFactor = roughnessFactor;
 }
 
 function createBakedMaterial(context, material) {
@@ -109,7 +182,7 @@ function createBakedMaterial(context, material) {
   };
 }
 
-function shouldBakePrimitive(gltf, primitive, selection) {
+function shouldBakePrimitive(gltf, mesh, primitive, primitiveIndex, selection) {
   if (selection === "all") return true;
   if (selection === "white") {
     const material = gltf.materials?.[primitive.material];
@@ -120,7 +193,15 @@ function shouldBakePrimitive(gltf, primitive, selection) {
     const [r, g, b] = baseColor;
     return Math.min(r, g, b) > 0.78 && Math.max(r, g, b) - Math.min(r, g, b) < 0.08;
   }
+  if (selection === "commandBoxBody") {
+    const name = gltf.materials?.[primitive.material]?.name || "";
+    return /ABS\s*\(White\)|Aluminum\s*-\s*Brushed\s*Linear/i.test(name) || isCommandBoxTopPlate(mesh, primitiveIndex);
+  }
   return false;
+}
+
+function isCommandBoxTopPlate(mesh, primitiveIndex) {
+  return mesh.name === "Body1.005" && primitiveIndex === 1;
 }
 
 function readGlb(buffer) {
