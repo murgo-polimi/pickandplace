@@ -2,6 +2,7 @@ import fs from "node:fs";
 import zlib from "node:zlib";
 
 const TARGETS = [
+  { source: "../Box.glb", output: "../Box_baked.glb", selection: "boxBluePlastic", material: "bluePlastic" },
   { source: "../Grid.glb", output: "../Grid_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_Hole.glb", output: "../Grid_Hole_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_second.glb", output: "../Grid_second_baked.glb", selection: "all", material: "satinAluminum" },
@@ -9,6 +10,16 @@ const TARGETS = [
   { source: "../CommandBox.glb", output: "../CommandBox_baked.glb", selection: "commandBoxBody", material: "brushedAluminum" },
   { source: "../SignalPole.glb", output: "../SignalPole_baked.glb", selection: "signalPoleMetal", material: "signalPoleBrushedAluminum" }
 ];
+
+const requestedTargets = new Set(process.argv.slice(2).map(normalizeTargetName));
+const activeTargets = requestedTargets.size
+  ? TARGETS.filter(target => requestedTargets.has(normalizeTargetName(target.source)))
+  : TARGETS;
+
+if (requestedTargets.size && activeTargets.length !== requestedTargets.size) {
+  const known = TARGETS.map(target => normalizeTargetName(target.source)).join(", ");
+  throw new Error(`Unknown bake target. Expected one of: ${known}`);
+}
 
 const COMPONENT_SIZE = {
   5120: 1,
@@ -28,8 +39,12 @@ const TYPE_COUNT = {
 
 let crcTable = null;
 
-for (const target of TARGETS) {
+for (const target of activeTargets) {
   bakeSatinAluminumMaterial(target);
+}
+
+function normalizeTargetName(target) {
+  return target.replace(/^.*\//, "").replace(/^\.\.\//, "");
 }
 
 function bakeSatinAluminumMaterial(target) {
@@ -39,6 +54,10 @@ function bakeSatinAluminumMaterial(target) {
   const context = readGlb(glb);
   const sourceName = inputPath.pathname.split("/").pop();
   if (context.gltf.extras?.materialBake) {
+    if (target.selection === "boxBluePlastic") {
+      augmentBakedBox(context, outputPath, glb.length, target.material);
+      return;
+    }
     if (target.selection === "commandBoxBody") {
       augmentBakedCommandBox(context, outputPath, glb.length);
       return;
@@ -176,6 +195,52 @@ function augmentBakedSignalPole(context, outputPath, inputByteLength, material) 
   console.log(`Input ${inputByteLength.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
 }
 
+function augmentBakedBox(context, outputPath, inputByteLength, material) {
+  let materialIndex = findMaterialIndex(context.gltf, "Baked Blue Plastic");
+  if (materialIndex < 0) {
+    materialIndex = findMaterialIndex(context.gltf, "Baked Scratched Blue Plastic");
+  }
+  if (materialIndex < 0) {
+    throw new Error("Box.glb is baked, but has no blue plastic material.");
+  }
+
+  applyBluePlasticMaterialToIndex(context, materialIndex, material);
+
+  let primitiveCount = 0;
+  for (const mesh of context.gltf.meshes || []) {
+    for (let primitiveIndex = 0; primitiveIndex < (mesh.primitives || []).length; primitiveIndex += 1) {
+      const primitive = mesh.primitives[primitiveIndex];
+      if (primitive.attributes?.POSITION === undefined) continue;
+      if (!shouldBakePrimitive(context.gltf, mesh, primitive, primitiveIndex, "boxBluePlastic")) continue;
+      if (primitive.attributes.TEXCOORD_0 === undefined) {
+        bakePlanarUvs(context, primitive);
+      }
+      primitive.material = materialIndex;
+      primitiveCount += 1;
+    }
+  }
+
+  context.gltf.extras = {
+    ...(context.gltf.extras || {}),
+    materialBake: {
+      ...(context.gltf.extras?.materialBake || {}),
+      source: "Box.glb",
+      geometryPositionsModified: false,
+      bakedTextures: ["blue plastic"],
+      selection: "boxBluePlastic",
+      primitiveCount,
+      textureVariant: "cleanBluePlastic",
+      note: "Only material assignment, texture coordinates, and embedded texture data were changed."
+    }
+  };
+
+  context.gltf.buffers[0].byteLength = context.binary.length;
+  const output = writeGlb(context.gltf, context.binary);
+  fs.writeFileSync(outputPath, output);
+  console.log(`Updated ${outputPath.pathname}`);
+  console.log(`Input ${inputByteLength.toLocaleString()} bytes -> output ${output.length.toLocaleString()} bytes`);
+}
+
 function findMaterialIndex(gltf, name) {
   return (gltf.materials || []).findIndex(material => material.name === name);
 }
@@ -197,6 +262,14 @@ function setNamedMaterialColor(gltf, name, baseColorFactor, roughnessFactor) {
 }
 
 function createBakedMaterial(context, material) {
+  if (material === "bluePlastic") {
+    const options = bluePlasticOptions(context);
+    return {
+      index: addMaterial(context, options),
+      label: options.label
+    };
+  }
+
   if (material === "brushedAluminum" || material === "signalPoleBrushedAluminum") {
     const options = bakedBrushedAluminumOptions(context, material);
     return {
@@ -224,6 +297,26 @@ function createBakedMaterial(context, material) {
 function applyBakedMaterialToIndex(context, materialIndex, material) {
   const options = bakedBrushedAluminumOptions(context, material);
   setMaterial(context.gltf.materials[materialIndex], options);
+}
+
+function applyBluePlasticMaterialToIndex(context, materialIndex) {
+  const options = bluePlasticOptions(context);
+  setMaterial(context.gltf.materials[materialIndex], options);
+}
+
+function bluePlasticOptions(context) {
+  const textures = createCleanBluePlasticTextures(512);
+  const textureIndices = addTexturePair(context, "Baked blue plastic", textures);
+  return {
+    name: "Baked Blue Plastic",
+    label: "blue plastic",
+    baseColorFactor: [0.055, 0.19, 0.62, 1],
+    baseColorTexture: textureIndices.albedo,
+    normalTexture: textureIndices.normal,
+    normalScale: 0.034,
+    metallicFactor: 0,
+    roughnessFactor: 0.72
+  };
 }
 
 function bakedBrushedAluminumOptions(context, material) {
@@ -262,6 +355,9 @@ function shouldBakePrimitive(gltf, mesh, primitive, primitiveIndex, selection) {
   }
   if (selection === "signalPoleMetal") {
     return /MetalBody|MetalPlatform/i.test(mesh.name || "");
+  }
+  if (selection === "boxBluePlastic") {
+    return /Body/i.test(mesh.name || "");
   }
   return false;
 }
@@ -607,6 +703,42 @@ function createRandomizedBrushedAluminumTextures(size) {
   }
 
   fillNormalTexture(normal, heights, size, 0.72, 0.92);
+  return { albedo, normal };
+}
+
+function createCleanBluePlasticTextures(size) {
+  const albedo = rgbaImage(size, size);
+  const normal = rgbaImage(size, size);
+  const heights = new Float32Array(size * size);
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const warpX = (fbmNoise(x * 0.007, y * 0.009, 701, 4) - 0.5) * 58;
+      const warpY = (fbmNoise(x * 0.009, y * 0.007, 709, 4) - 0.5) * 52;
+      const wx = x + warpX;
+      const wy = y + warpY;
+      const cloudy = fbmNoise(wx * 0.0046, wy * 0.0042, 719, 5) - 0.5;
+      const handling = fbmNoise(wx * 0.021, wy * 0.018, 727, 4) - 0.5;
+      const stipple = fbmNoise(wx * 0.082, wy * 0.079, 731, 3) - 0.5;
+      const micro = hashNoise(x, y, 733) - 0.5;
+      const height = 0.5 + cloudy * 0.008 + handling * 0.006 + stipple * 0.004 + micro * 0.0025;
+      const i = y * size + x;
+      heights[i] = height;
+
+      const base = {
+        r: 18 + cloudy * 7 + handling * 4 + micro * 2,
+        g: 72 + cloudy * 11 + handling * 6 + micro * 2,
+        b: 182 + cloudy * 18 + handling * 12 + micro * 4
+      };
+      const p = i * 4;
+      albedo.data[p] = clamp(base.r, 8, 72);
+      albedo.data[p + 1] = clamp(base.g, 42, 124);
+      albedo.data[p + 2] = clamp(base.b, 112, 228);
+      albedo.data[p + 3] = 255;
+    }
+  }
+
+  fillNormalTexture(normal, heights, size, 0.62, 0.62);
   return { albedo, normal };
 }
 
