@@ -11,7 +11,7 @@ const FLOOR_SIZE_METERS = 24;
 const CONCRETE_SLAB_SIZE_METERS = 2;
 const INDUSTRIAL_FLOOR_TEXTURE_SIZE = 2048;
 const INDUSTRIAL_FLOOR_VERSION = "20260601-floor-fine-seams";
-const MODEL_LIST_VERSION = "20260708-part-flat-satin-steel";
+const MODEL_LIST_VERSION = "20260708-box-part-blue-plastic";
 const INDUSTRIAL_FLOOR_ALBEDO_URL = `./assets/industrial_concrete_floor_24m_2m.png?v=${INDUSTRIAL_FLOOR_VERSION}`;
 const INDUSTRIAL_FLOOR_NORMAL_URL = `./assets/industrial_concrete_floor_24m_2m_normal.png?v=${INDUSTRIAL_FLOOR_VERSION}`;
 const CONCRETE_SEAM_WIDTH_METERS = 0.005;
