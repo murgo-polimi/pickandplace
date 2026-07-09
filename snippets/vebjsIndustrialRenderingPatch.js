@@ -75,14 +75,81 @@ function applyVebIndustrialRendering(scene, options = {}) {
   scene.settings.shadow = scene.settings.shadow || {};
   scene.settings.shadow.environmentIntensity = environmentIntensity;
 
-  for (const material of scene.materials || []) {
-    if (material.getClassName?.() === "PBRMaterial") {
-      material.environmentIntensity = environmentIntensity;
-      material.usePhysicalLightFalloff = false;
-    }
-  }
+  applyVebMaterialCorrections(scene, { fallbackEnvironmentIntensity: environmentIntensity });
 
   return ground;
 }
 
+function applyVebMaterialCorrections(scene, options = {}) {
+  const {
+    fallbackEnvironmentIntensity = 0.28,
+    disableForcedSheen = true
+  } = options;
+
+  for (const material of scene.materials || []) {
+    if (material.getClassName?.() !== "PBRMaterial") continue;
+
+    const profile = vebMaterialProfile(material.name || material.id || "", fallbackEnvironmentIntensity);
+    material.usePhysicalLightFalloff = false;
+    material.environmentIntensity = profile.environmentIntensity;
+
+    if (disableForcedSheen && material.sheen) {
+      material.sheen.isEnabled = false;
+      material.sheen.intensity = 0;
+    }
+
+    if ("microSurface" in material && profile.microSurface !== undefined) {
+      material.microSurface = profile.microSurface;
+    }
+    if ("specularIntensity" in material && profile.specularIntensity !== undefined) {
+      material.specularIntensity = profile.specularIntensity;
+    }
+  }
+}
+
+function vebMaterialProfile(name, fallbackEnvironmentIntensity) {
+  if (/rubber|belt/i.test(name)) {
+    return {
+      environmentIntensity: 0.18,
+      microSurface: 0.18,
+      specularIntensity: 0.12
+    };
+  }
+  if (/matte red|red motor|motor cover/i.test(name) && /red/i.test(name)) {
+    return {
+      environmentIntensity: 0.18,
+      microSurface: 0.16,
+      specularIntensity: 0.12
+    };
+  }
+  if (/darker motor|motor metal/i.test(name)) {
+    return {
+      environmentIntensity: 0.3,
+      microSurface: 0.16
+    };
+  }
+  if (/fastener|bolt|nut/i.test(name)) {
+    return {
+      environmentIntensity: 0.34,
+      microSurface: 0.24
+    };
+  }
+  if (/aluminum|steel|metal|brushed|satin/i.test(name)) {
+    return {
+      environmentIntensity: 0.34,
+      microSurface: 0.2
+    };
+  }
+  if (/polymer|plastic|support/i.test(name)) {
+    return {
+      environmentIntensity: 0.18,
+      specularIntensity: 0.18
+    };
+  }
+  return {
+    environmentIntensity: fallbackEnvironmentIntensity
+  };
+}
+
 window.applyVebIndustrialRendering = applyVebIndustrialRendering;
+window.applyVebMaterialCorrections = applyVebMaterialCorrections;
