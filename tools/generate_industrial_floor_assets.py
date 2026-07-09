@@ -98,22 +98,62 @@ def transform_slab_uv(u: float, v: float, slab: dict[str, float | bool | int]) -
     return tu * float(slab["sample_scale"]) + float(slab["offset_u"]), tv * float(slab["sample_scale"]) + float(slab["offset_v"])
 
 
-def saw_cut_line_mask(pixel: int, slab_pixel_size: float, slab_count: int, slab_size_m: float, seam_width_m: float) -> float:
+def saw_cut_line_mask(
+    pixel: int,
+    slab_pixel_size: float,
+    slab_count: int,
+    slab_size_m: float,
+    seam_width_m: float,
+    include_border_seams: bool,
+    min_seam_pixels: float,
+    seam_feather_pixels: float,
+) -> float:
     coordinate = pixel + 0.5
     boundary = round(coordinate / slab_pixel_size)
-    if boundary <= 0 or boundary >= slab_count:
+    if include_border_seams:
+        if boundary < 0 or boundary > slab_count:
+            return 0.0
+    elif boundary <= 0 or boundary >= slab_count:
         return 0.0
     boundary_pixel = boundary * slab_pixel_size
-    seam_width_pixels = max(0.2, seam_width_m * (slab_pixel_size / slab_size_m))
+    seam_width_pixels = max(min_seam_pixels, seam_width_m * (slab_pixel_size / slab_size_m))
     half_width = seam_width_pixels * 0.5
-    feather = half_width + 0.48
+    feather = half_width + seam_feather_pixels
     return 1.0 - smooth_step(half_width, feather, abs(coordinate - boundary_pixel))
 
 
-def saw_cut_mask(x: int, y: int, slab_pixel_size: float, slab_count: int, slab_size_m: float, seam_width_m: float) -> float:
+def saw_cut_mask(
+    x: int,
+    y: int,
+    slab_pixel_size: float,
+    slab_count: int,
+    slab_size_m: float,
+    seam_width_m: float,
+    include_border_seams: bool,
+    min_seam_pixels: float,
+    seam_feather_pixels: float,
+) -> float:
     return max(
-        saw_cut_line_mask(x, slab_pixel_size, slab_count, slab_size_m, seam_width_m),
-        saw_cut_line_mask(y, slab_pixel_size, slab_count, slab_size_m, seam_width_m),
+        saw_cut_line_mask(
+            x,
+            slab_pixel_size,
+            slab_count,
+            slab_size_m,
+            seam_width_m,
+            include_border_seams,
+            min_seam_pixels,
+            seam_feather_pixels,
+        ),
+        saw_cut_line_mask(
+            y,
+            slab_pixel_size,
+            slab_count,
+            slab_size_m,
+            seam_width_m,
+            include_border_seams,
+            min_seam_pixels,
+            seam_feather_pixels,
+        ),
     )
 
 
@@ -175,6 +215,9 @@ def generate(
     seam_width_m: float,
     seam_darkening: float,
     seam_depth: float,
+    include_border_seams: bool,
+    min_seam_pixels: float,
+    seam_feather_pixels: float,
 ) -> None:
     source = Image.open(source_path).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
     source_pixels = source.load()
@@ -198,7 +241,17 @@ def generate(
             sx = math.floor(wrap01(u) * 1024) % 1024
             sy = math.floor(wrap01(v) * 1024) % 1024
             sr, sg, sb = source_pixels[sx, sy]
-            seam_core = saw_cut_mask(x, y, slab_pixel_size, slab_count, slab_size_m, seam_width_m)
+            seam_core = saw_cut_mask(
+                x,
+                y,
+                slab_pixel_size,
+                slab_count,
+                slab_size_m,
+                seam_width_m,
+                include_border_seams,
+                min_seam_pixels,
+                seam_feather_pixels,
+            )
             wear_albedo, wear_height = slab_wear(local_u, local_v, slab, slab_x, slab_y)
             grain = hash_noise(x, y, 601) - 0.5
             source_luminance = (sr * 0.2126 + sg * 0.7152 + sb * 0.0722) / 255
@@ -231,6 +284,13 @@ def main() -> None:
     parser.add_argument("--seam-width-meters", type=float, default=DEFAULT_SEAM_WIDTH_METERS)
     parser.add_argument("--seam-darkening", type=float, default=DEFAULT_SEAM_DARKENING)
     parser.add_argument("--seam-depth", type=float, default=DEFAULT_SEAM_DEPTH)
+    parser.add_argument("--min-seam-pixels", type=float, default=0.2)
+    parser.add_argument("--seam-feather-pixels", type=float, default=0.48)
+    parser.add_argument(
+        "--include-border-seams",
+        action="store_true",
+        help="Draw seams on texture borders so tiled renderers can show a joint at repeat boundaries.",
+    )
     args = parser.parse_args()
     generate(
         Path(args.source),
@@ -242,6 +302,9 @@ def main() -> None:
         args.seam_width_meters,
         args.seam_darkening,
         args.seam_depth,
+        args.include_border_seams,
+        args.min_seam_pixels,
+        args.seam_feather_pixels,
     )
     print(f"Wrote {args.albedo}")
     print(f"Wrote {args.normal}")

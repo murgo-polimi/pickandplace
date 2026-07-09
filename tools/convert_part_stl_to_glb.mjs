@@ -3,9 +3,14 @@ import zlib from "node:zlib";
 
 const DEFAULT_SOURCE = "/Users/marcello/politecnico/DIDATTICA/SIP/PARTI/680/Casappa/23269680.stl";
 const DEFAULT_OUTPUT = "../Part_from_stl.glb";
+const DEFAULT_MATERIAL = "satinSteel";
+const DEFAULT_POSITION_SCALE = 0.0005;
+const SOURCE_TO_METER_SCALE = 0.001;
 
 const sourcePath = process.argv[2] || DEFAULT_SOURCE;
 const outputPath = new URL(process.argv[3] || DEFAULT_OUTPUT, import.meta.url);
+const materialVariant = process.argv[4] || DEFAULT_MATERIAL;
+const positionScale = parsePositionScale(process.argv[5] || String(DEFAULT_POSITION_SCALE));
 
 const RELIEF_FLATTENING = {
   minX: -50,
@@ -21,16 +26,26 @@ let crcTable = null;
 const stl = fs.readFileSync(sourcePath);
 const rawTriangles = readBinaryStl(stl);
 const flattenedTriangles = flattenLogoRelief(rawTriangles, RELIEF_FLATTENING);
-const meshData = buildMeshData(flattenedTriangles);
-const steelTextures = createSatinSteelTextures(512);
-const glb = writePartGlb(meshData, steelTextures, sourcePath);
+const meshData = buildMeshData(flattenedTriangles, positionScale);
+const material = createPartMaterial(materialVariant, 512);
+const glb = writePartGlb(meshData, material, sourcePath);
 
 fs.writeFileSync(outputPath, glb);
 
 console.log(`Read ${rawTriangles.length.toLocaleString()} STL triangles.`);
 console.log(`Wrote ${outputPath.pathname}`);
+console.log(`Material ${material.name}`);
+console.log(`Position scale ${positionScale}`);
 console.log(`Kept ${meshData.triangleCount.toLocaleString()} triangles after flattening/removing degenerate faces.`);
 console.log(`Flattened ${meshData.flattenedVertexCount.toLocaleString()} vertices in the Casappa/logo relief area.`);
+
+function parsePositionScale(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid position scale "${value}". Use a positive numeric scale.`);
+  }
+  return parsed;
+}
 
 function readBinaryStl(buffer) {
   if (buffer.length < 84) {
@@ -76,7 +91,7 @@ function flattenLogoRelief(triangles, bounds) {
   );
 }
 
-function buildMeshData(triangles) {
+function buildMeshData(triangles, scale) {
   const positions = [];
   const normals = [];
   const uvs = [];
@@ -95,13 +110,18 @@ function buildMeshData(triangles) {
     const faceUvs = faceUvCoordinates(triangle, normal);
     for (let i = 0; i < 3; i += 1) {
       const vertex = triangle[i];
+      const scaledVertex = [
+        vertex[0] * scale,
+        vertex[1] * scale,
+        vertex[2] * scale
+      ];
       if (vertex[3]) flattenedVertexCount += 1;
-      positions.push(vertex[0], vertex[1], vertex[2]);
+      positions.push(scaledVertex[0], scaledVertex[1], scaledVertex[2]);
       normals.push(normal[0], normal[1], normal[2]);
       uvs.push(faceUvs[i][0], faceUvs[i][1]);
       for (let axis = 0; axis < 3; axis += 1) {
-        min[axis] = Math.min(min[axis], vertex[axis]);
-        max[axis] = Math.max(max[axis], vertex[axis]);
+        min[axis] = Math.min(min[axis], scaledVertex[axis]);
+        max[axis] = Math.max(max[axis], scaledVertex[axis]);
       }
     }
     triangleCount += 1;
@@ -145,7 +165,7 @@ function faceUvCoordinates(triangle, normal) {
   return triangle.map(vertex => [vertex[0] / repeatMm, vertex[2] / repeatMm]);
 }
 
-function writePartGlb(meshData, textures, source) {
+function writePartGlb(meshData, material, source) {
   const binaryParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -161,18 +181,18 @@ function writePartGlb(meshData, textures, source) {
   const positionView = addBinaryPart(binaryParts, bufferViews, floatBuffer(meshData.positions), 34962);
   const normalView = addBinaryPart(binaryParts, bufferViews, floatBuffer(meshData.normals), 34962);
   const uvView = addBinaryPart(binaryParts, bufferViews, floatBuffer(meshData.uvs), 34962);
-  const albedoView = addBinaryPart(binaryParts, bufferViews, encodePng(textures.albedo.width, textures.albedo.height, textures.albedo.data));
-  const normalTextureView = addBinaryPart(binaryParts, bufferViews, encodePng(textures.normal.width, textures.normal.height, textures.normal.data));
+  const albedoView = addBinaryPart(binaryParts, bufferViews, encodePng(material.textures.albedo.width, material.textures.albedo.height, material.textures.albedo.data));
+  const normalTextureView = addBinaryPart(binaryParts, bufferViews, encodePng(material.textures.normal.width, material.textures.normal.height, material.textures.normal.data));
 
   const vertexCount = meshData.positions.length / 3;
   const positionAccessor = addAccessor(accessors, positionView, 5126, vertexCount, "VEC3", meshData.min, meshData.max);
   const normalAccessor = addAccessor(accessors, normalView, 5126, vertexCount, "VEC3");
   const uvAccessor = addAccessor(accessors, uvView, 5126, vertexCount, "VEC2");
 
-  images.push({ name: "Baked satin steel albedo", bufferView: albedoView, mimeType: "image/png" });
-  images.push({ name: "Baked satin steel normal", bufferView: normalTextureView, mimeType: "image/png" });
-  texturesJson.push({ name: "Baked satin steel albedo", sampler: 0, source: 0 });
-  texturesJson.push({ name: "Baked satin steel normal", sampler: 0, source: 1 });
+  images.push({ name: `${material.textureLabel} albedo`, bufferView: albedoView, mimeType: "image/png" });
+  images.push({ name: `${material.textureLabel} normal`, bufferView: normalTextureView, mimeType: "image/png" });
+  texturesJson.push({ name: `${material.textureLabel} albedo`, sampler: 0, source: 0 });
+  texturesJson.push({ name: `${material.textureLabel} normal`, sampler: 0, source: 1 });
 
   const gltf = {
     asset: {
@@ -195,16 +215,16 @@ function writePartGlb(meshData, textures, source) {
       }]
     }],
     materials: [{
-      name: "Baked Satin Steel",
+      name: material.name,
       pbrMetallicRoughness: {
-        baseColorFactor: [0.48, 0.5, 0.49, 1],
+        baseColorFactor: material.baseColorFactor,
         baseColorTexture: { index: 0 },
-        metallicFactor: 0.98,
-        roughnessFactor: 0.7
+        metallicFactor: material.metallicFactor,
+        roughnessFactor: material.roughnessFactor
       },
       normalTexture: {
         index: 1,
-        scale: 0.045
+        scale: material.normalScale
       },
       doubleSided: false
     }],
@@ -217,16 +237,72 @@ function writePartGlb(meshData, textures, source) {
     extras: {
       materialBake: {
         source,
+        sourceUnit: "millimeter",
+        outputUnit: "meter",
+        positionScale,
+        sourceToMeterScale: SOURCE_TO_METER_SCALE,
+        sizeMultiplierAfterUnitConversion: positionScale / SOURCE_TO_METER_SCALE,
         geometryPositionsModified: true,
         flattenedLogoRelief: true,
         flattenedReliefBounds: RELIEF_FLATTENING,
-        bakedTextures: ["satin steel"],
-        note: "Converted from STL, flattened the central Casappa/logo relief, and embedded steel material textures."
+        bakedTextures: [material.label],
+        materialVariant,
+        note: `Converted from STL, scaled the positions into meters, flattened the central Casappa/logo relief, and embedded ${material.label} material textures.`
       }
     }
   };
 
   return writeGlb(gltf, Buffer.concat(binaryParts));
+}
+
+function createPartMaterial(variant, size) {
+  if (variant === "satinSteel") {
+    return {
+      name: "Baked Satin Steel",
+      label: "satin steel",
+      textureLabel: "Baked satin steel",
+      baseColorFactor: [0.62, 0.64, 0.63, 1],
+      metallicFactor: 0.98,
+      roughnessFactor: 0.66,
+      normalScale: 0.04,
+      textures: createSatinSteelTextures(size)
+    };
+  }
+  if (variant === "bluePlastic") {
+    return {
+      name: "Baked Blue Plastic",
+      label: "blue plastic",
+      textureLabel: "Baked blue plastic",
+      baseColorFactor: [0.055, 0.19, 0.62, 1],
+      metallicFactor: 0,
+      roughnessFactor: 0.72,
+      normalScale: 0.034,
+      textures: createCleanPlasticTextures(size, {
+        base: [18, 72, 182],
+        min: [8, 42, 112],
+        max: [72, 124, 228],
+        seed: 903
+      })
+    };
+  }
+  if (variant === "greenPlastic") {
+    return {
+      name: "Baked Green Plastic",
+      label: "green plastic",
+      textureLabel: "Baked green plastic",
+      baseColorFactor: [0.04, 0.46, 0.2, 1],
+      metallicFactor: 0,
+      roughnessFactor: 0.68,
+      normalScale: 0.034,
+      textures: createCleanPlasticTextures(size, {
+        base: [18, 142, 70],
+        min: [8, 82, 34],
+        max: [76, 194, 112],
+        seed: 937
+      })
+    };
+  }
+  throw new Error(`Unknown material variant "${variant}". Use satinSteel, bluePlastic, or greenPlastic.`);
 }
 
 function addBinaryPart(parts, bufferViews, bytes, target) {
@@ -307,7 +383,7 @@ function createSatinSteelTextures(size) {
       const micro = hashNoise(x, y, 857) - 0.5;
       const scuff = steelScuffAt(x, y, scuffs);
       const height = 0.5 + mottle * 0.014 + satin * 0.012 + cross * 0.008 + micro * 0.0035 + scuff.height * 0.018;
-      const shade = clamp(126 + mottle * 18 + satin * 13 + cross * 7 + micro * 4 + scuff.albedo * 11, 92, 172);
+      const shade = clamp(156 + mottle * 18 + satin * 13 + cross * 7 + micro * 4 + scuff.albedo * 10, 118, 205);
       const p = (y * size + x) * 4;
       heights[y * size + x] = height;
       albedo.data[p] = clamp(shade * 0.96, 0, 255);
@@ -318,6 +394,38 @@ function createSatinSteelTextures(size) {
   }
 
   fillNormalTexture(normal, heights, size, 0.68, 0.68);
+  return { albedo, normal };
+}
+
+function createCleanPlasticTextures(size, palette) {
+  const albedo = rgbaImage(size, size);
+  const normal = rgbaImage(size, size);
+  const heights = new Float32Array(size * size);
+  const [baseR, baseG, baseB] = palette.base;
+  const [minR, minG, minB] = palette.min;
+  const [maxR, maxG, maxB] = palette.max;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const warpX = (fbmNoise(x * 0.007, y * 0.009, palette.seed, 4) - 0.5) * 58;
+      const warpY = (fbmNoise(x * 0.009, y * 0.007, palette.seed + 8, 4) - 0.5) * 52;
+      const wx = x + warpX;
+      const wy = y + warpY;
+      const cloudy = fbmNoise(wx * 0.0046, wy * 0.0042, palette.seed + 18, 5) - 0.5;
+      const handling = fbmNoise(wx * 0.021, wy * 0.018, palette.seed + 26, 4) - 0.5;
+      const stipple = fbmNoise(wx * 0.082, wy * 0.079, palette.seed + 30, 3) - 0.5;
+      const micro = hashNoise(x, y, palette.seed + 32) - 0.5;
+      const height = 0.5 + cloudy * 0.008 + handling * 0.006 + stipple * 0.004 + micro * 0.0025;
+      const p = (y * size + x) * 4;
+      heights[y * size + x] = height;
+      albedo.data[p] = clamp(baseR + cloudy * 7 + handling * 4 + micro * 2, minR, maxR);
+      albedo.data[p + 1] = clamp(baseG + cloudy * 11 + handling * 6 + micro * 2, minG, maxG);
+      albedo.data[p + 2] = clamp(baseB + cloudy * 18 + handling * 12 + micro * 4, minB, maxB);
+      albedo.data[p + 3] = 255;
+    }
+  }
+
+  fillNormalTexture(normal, heights, size, 0.62, 0.62);
   return { albedo, normal };
 }
 

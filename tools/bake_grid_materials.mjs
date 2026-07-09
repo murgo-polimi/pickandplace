@@ -3,12 +3,14 @@ import zlib from "node:zlib";
 
 const TARGETS = [
   { source: "../Box.glb", output: "../Box_baked.glb", selection: "boxBluePlastic", material: "bluePlastic" },
+  { source: "../Box_part.glb", output: "../Box_part_baked.glb", selection: "all", material: "bluePlastic" },
   { source: "../Grid.glb", output: "../Grid_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_Hole.glb", output: "../Grid_Hole_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Grid_second.glb", output: "../Grid_second_baked.glb", selection: "all", material: "satinAluminum" },
   { source: "../Pick_and_Place_Robot.glb", output: "../Pick_and_Place_Robot_baked.glb", selection: "white", material: "brushedAluminum" },
   { source: "../CommandBox.glb", output: "../CommandBox_baked.glb", selection: "commandBoxBody", material: "brushedAluminum" },
-  { source: "../SignalPole.glb", output: "../SignalPole_baked.glb", selection: "signalPoleMetal", material: "signalPoleBrushedAluminum" }
+  { source: "../SignalPole.glb", output: "../SignalPole_baked.glb", selection: "signalPoleMetal", material: "signalPoleBrushedAluminum" },
+  { source: "../Stopper.glb", output: "../Stopper.glb", selection: "all", material: "signalPoleBrushedAluminum" }
 ];
 
 const requestedTargets = new Set(process.argv.slice(2).map(normalizeTargetName));
