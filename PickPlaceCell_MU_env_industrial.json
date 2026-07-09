@@ -1,0 +1,140 @@
+{
+  "cameras": [
+    {
+      "id": "camera.d1",
+      "type": "FreeCamera",
+      "position": [
+        169.29288305345162,
+        147.76987850341328,
+        509.90689492292483
+      ],
+      "rotation": [
+        0.5045344609099227,
+        -2.3499767535759783,
+        0
+      ],
+      "speed": 8
+    },
+    {
+      "id": "camera.d2",
+      "type": "FreeCamera",
+      "position": [
+        39,
+        70,
+        438
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "speed": 1
+    },
+    {
+      "id": "camera.d3",
+      "type": "FreeCamera",
+      "position": [
+        39,
+        70,
+        438
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "speed": 1
+    }
+  ],
+  "lights": [
+    {
+      "id": "light.0",
+      "type": "HemisphericLight",
+      "direction": [
+        0.3,
+        1,
+        0.2
+      ],
+      "intensity": 0.42
+    },
+    {
+      "id": "light.1",
+      "type": "PointLight",
+      "position": [
+        600,
+        950,
+        1450
+      ],
+      "intensity": 2.8
+    }
+  ],
+  "shadows": {
+    "darkness": 0.3,
+    "bias": 0.001,
+    "environmentIntensity": 0.34
+  },
+  "datagen": {
+    "cam": {
+      "alphaMin": 0,
+      "alphaMax": 360,
+      "alphaStep": 60,
+      "betaMin": 0,
+      "betaMax": 70,
+      "betaStep": 35,
+      "radiusFactorMin": 1.7,
+      "radiusFactorMax": 2.7,
+      "radiusFactorStep": 1
+    },
+    "background": {
+      "fragmentMode": "box",
+      "surfaceMode": "sphere",
+      "volumeForm": "mixed",
+      "fragmentCount": 500,
+      "sourceCount": 100,
+      "distanceFactor": 8.0,
+      "widthFactor": 15.0,
+      "heightFactor": 15.0,
+      "fragmentSizeFactor": 1.5,
+      "minDepthRatio": 0.55,
+      "jitterRatio": 0.15,
+      "seed": 2026,
+      "minSourceSizeFactor": 0.001,
+      "maxSourceSizeFactor": 40,
+      "faceCameraFragments": false,
+      "materialSampling": "surfaceArea",
+      "saturatedColorPenalty": 0.35,
+      "colorSaturationFactor": 0.9
+    }
+  },
+  "env": {
+    "skyboxTexture": "studio.env",
+    "backgroundColor": [
+      0.13,
+      0.14,
+      0.13
+    ],
+    "ground": {
+      "texture": "assets/industrial_concrete_floor_4m_2m_veb.png",
+      "size": [
+        24000,
+        24000,
+        96
+      ],
+      "mass": 0
+    }
+  },
+  "physics": {
+    "engine": "havok",
+    "gravity": [
+      0,
+      -9.81,
+      0
+    ],
+    "viewer": false
+  },
+  "webxr": {
+    "interactions": {
+      "pointerSelectionSize": 1
+    }
+  }
+}
