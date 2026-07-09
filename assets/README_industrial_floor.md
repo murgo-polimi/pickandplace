@@ -6,7 +6,9 @@ These textures are ready to reuse with `BABYLON.CreateGround`.
 - `industrial_concrete_floor_24m_2m_normal.png`: matching normal map. Use `gammaSpace = false`.
 - Slab joints are spaced every 2 m. The joint is a fine saw-cut style seam, tuned to about 5 mm before texture filtering.
 
-For millimeter-native GLB scenes, create the ground with `unitsPerMeter: 1000`. A 24 m floor should therefore be `24000 x 24000` scene units. For a larger floor, repeat the texture by scaling it with `widthMeters / 24` and `heightMeters / 24`; this keeps the seams at 2 m spacing.
+For standard glTF/GLB scenes, create the ground in meters. A 24 m floor should therefore be `24 x 24` scene units. For millimeter-native host scenes such as the current VEB.js setup, pass `unitsPerMeter: 1000`; in that case a 24 m floor is `24000 x 24000` scene units.
+
+For a larger floor, repeat the texture by scaling it with `widthMeters / 24` and `heightMeters / 24`; this keeps the seams at 2 m spacing.
 
 Reusable helper:
 
@@ -16,7 +18,6 @@ Reusable helper:
   const { ground, material } = createIndustrialConcreteFloor(scene, {
     widthMeters: 24,
     heightMeters: 24,
-    unitsPerMeter: 1000,
     y: 0
   });
 </script>
