@@ -17,6 +17,7 @@ def generate(
     joint_spacing_meters: float,
     joint_width_meters: float,
     joint_color: tuple[int, int, int],
+    include_boundary_joints: bool,
 ) -> None:
     source = Image.open(source_path).convert("RGB")
     source = ImageOps.fit(source, (size, size), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
@@ -33,7 +34,7 @@ def generate(
     line_width_px = max(1, round(joint_width_meters * pixels_per_meter))
 
     draw = ImageDraw.Draw(concrete)
-    index = 1
+    index = 0 if include_boundary_joints else 1
     while True:
         center = round(index * spacing_px)
         if center >= size:
@@ -73,6 +74,11 @@ def main() -> None:
     parser.add_argument("--joint-spacing-meters", type=float, default=0.2)
     parser.add_argument("--joint-width-meters", type=float, default=0.0005)
     parser.add_argument("--joint-color", type=parse_color, default=(58, 58, 54))
+    parser.add_argument(
+        "--include-boundary-joints",
+        action="store_true",
+        help="Draw a single-pixel joint at the texture origin so repeated VEB tiles do not miss seams at repeat boundaries.",
+    )
     args = parser.parse_args()
 
     generate(
@@ -83,6 +89,7 @@ def main() -> None:
         args.joint_spacing_meters,
         args.joint_width_meters,
         args.joint_color,
+        args.include_boundary_joints,
     )
 
 

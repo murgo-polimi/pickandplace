@@ -10,7 +10,7 @@ For standard glTF/GLB scenes, create the ground in meters. A 24 m floor should t
 
 For a larger floor, repeat the texture by scaling it with `widthMeters / 24` and `heightMeters / 24`; this keeps the seams at 2 m spacing.
 
-VEB.js currently hard-codes the ground diffuse texture repeat to `uScale = 6` and `vScale = 6`. The `industrial_concrete_floor_4m_*_veb` textures compensate for that behavior by representing a 4 m tile. Use the `0p2m_drawn_0p5mm` variant for the current VEB scene: it uses an 8192 px texture and draws 1-pixel joints, which map to about 0.5 mm on the floor.
+VEB.js currently hard-codes the ground diffuse texture repeat to `uScale = 6` and `vScale = 6`. The `industrial_concrete_floor_4m_*_veb` textures compensate for that behavior by representing a 4 m tile. Use the `0p2m_drawn_0p5mm_complete` variant for the current VEB scene: it uses an 8192 px texture and draws 1-pixel joints, including the repeat-boundary joint, which maps to about 0.5 mm on the floor.
 
 Reusable helper:
 
